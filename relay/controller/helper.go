@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/songquanpeng/one-api/relay/constant/role"
+	"io"
 	"math"
 	"net/http"
 	"strings"
@@ -64,7 +67,12 @@ func getPreConsumedQuota(textRequest *relaymodel.GeneralOpenAIRequest, promptTok
 
 func preConsumeQuota(ctx context.Context, textRequest *relaymodel.GeneralOpenAIRequest, promptTokens int, ratio float64, meta *meta.Meta) (int64, *relaymodel.ErrorWithStatusCode) {
 	preConsumedQuota := getPreConsumedQuota(textRequest, promptTokens, ratio)
-
+	if textRequest != nil {
+        b, _ := json.Marshal(textRequest)
+        s := string(b)
+        logger.Infof(ctx, "ClientRequestJson: %s", s)
+    }
+	// logger.Infof(ctx, "pre_consumed_quota: %d", preConsumedQuota)
 	userQuota, err := model.CacheGetUserQuota(ctx, meta.UserId)
 	if err != nil {
 		return preConsumedQuota, openai.ErrorWrapper(err, "get_user_quota_failed", http.StatusInternalServerError)
@@ -80,7 +88,7 @@ func preConsumeQuota(ctx context.Context, textRequest *relaymodel.GeneralOpenAIR
 		// in this case, we do not pre-consume quota
 		// because the user has enough quota
 		preConsumedQuota = 0
-		logger.Info(ctx, fmt.Sprintf("user %d has enough quota %d, trusted and no need to pre-consume", meta.UserId, userQuota))
+		// logger.Info(ctx, fmt.Sprintf("user %d has enough quota %d, trusted and no need to pre-consume", meta.UserId, userQuota))
 	}
 	if preConsumedQuota > 0 {
 		err := model.PreConsumeTokenQuota(meta.TokenId, preConsumedQuota)
@@ -162,6 +170,13 @@ func isErrorHappened(meta *meta.Meta, resp *http.Response) bool {
 		// requiring the client to request the stream endpoint in the task info
 		meta.ChannelType != channeltype.Replicate {
 		return true
+	}
+	if !meta.IsStream && strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
+		responseBody, err := io.ReadAll(resp.Body)
+		if err == nil {
+			logger.SysLogf("ResponseJson: %s", string(responseBody))
+			resp.Body = io.NopCloser(bytes.NewBuffer(responseBody))
+		}
 	}
 	return false
 }
