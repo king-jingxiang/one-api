@@ -66,11 +66,10 @@ func getPreConsumedQuota(textRequest *relaymodel.GeneralOpenAIRequest, promptTok
 }
 
 func preConsumeQuota(ctx context.Context, textRequest *relaymodel.GeneralOpenAIRequest, promptTokens int, ratio float64, meta *meta.Meta) (int64, *relaymodel.ErrorWithStatusCode) {
-	preConsumedQuota := getPreConsumedQuota(textRequest, promptTokens, ratio)
-	if textRequest != nil {
-        b, _ := json.Marshal(textRequest)
-        s := string(b)
-        logger.Infof(ctx, "ClientRequestJson: %s", s)
+    preConsumedQuota := getPreConsumedQuota(textRequest, promptTokens, ratio)
+    if textRequest != nil {
+        b, _ := json.MarshalIndent(textRequest, "", "  ")
+        logger.Infof(ctx, "ClientRequestJson: %s", string(b))
     }
 	// logger.Infof(ctx, "pre_consumed_quota: %d", preConsumedQuota)
 	userQuota, err := model.CacheGetUserQuota(ctx, meta.UserId)
@@ -171,13 +170,18 @@ func isErrorHappened(meta *meta.Meta, resp *http.Response) bool {
 		meta.ChannelType != channeltype.Replicate {
 		return true
 	}
-	if !meta.IsStream && strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
-		responseBody, err := io.ReadAll(resp.Body)
-		if err == nil {
-			logger.SysLogf("ResponseJson: %s", string(responseBody))
-			resp.Body = io.NopCloser(bytes.NewBuffer(responseBody))
-		}
-	}
+    if !meta.IsStream && strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
+        responseBody, err := io.ReadAll(resp.Body)
+        if err == nil {
+            var buf bytes.Buffer
+            if json.Indent(&buf, responseBody, "", "  ") == nil {
+                logger.SysLogf("ResponseJson: %s", buf.String())
+            } else {
+                logger.SysLogf("ResponseJson: %s", string(responseBody))
+            }
+            resp.Body = io.NopCloser(bytes.NewBuffer(responseBody))
+        }
+    }
 	return false
 }
 
